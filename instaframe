@@ -1,0 +1,85 @@
+#!/bin/bash
+
+sqr=0
+por=0
+lan=0
+color=white
+buf=10
+rf=0
+
+Help() {
+	echo "help text"
+}
+
+while getopts ":hc:b:r:spl" option; do
+	case $option in
+		h) # display help
+			Help
+			exit;;
+		c) # choose a color (default: white)
+			color=$OPTARG;;
+		b) # select a buffer width (default: 10)
+			buf=$OPTARG;;
+		r) # select a radius to round corners (default: 0)
+			rf=$OPTARG;;
+		s) # make square images
+			sqr=1;;
+		p) # make portrait images
+			por=1;;
+		l) # make landscape images
+			lan=1;;
+		\?) # invalid option
+			echo "Error: Invalid option"
+			exit;;
+	esac
+done
+
+imagefile=${@:$OPTIND:1}
+ext=${imagefile##*.}
+fname=`basename $imagefile .$ext`
+
+read -r -a dims <<< "$(identify -format '%w %h' ${imagefile})"
+
+insta() {
+	wi=${dims[0]}
+	hi=${dims[1]}
+	wf=$1
+	hf=$2
+	tag=$3
+
+	x=$((buf * wi / (wf - buf)))
+	y=$((buf * hi / (hf - buf)))
+	ri=$((wi > hi ? (rf * wi / wf) : (rf * hi / hf)))
+	dif=$((wi > hi ? (wi - hi) : (hi - wi)))
+	if [ $x -gt $y ]; then
+		y=$((x + dif * (hf - buf) / (2 * (wf - buf))))
+	elif [ $y -gt $x ]; then
+		x=$((x + dif * (wf - buf) / (2 * (hf - buf))))
+	fi
+
+	w=$((2 * x + wi))
+	h=$((2 * y + hi))
+	min=$((x < y ? x : y))
+
+	convert $imagefile +write mpr:original \
+		\( mpr:original \
+		  \( +clone -crop $((ri + 1))x$((ri + 1))+0+0 -fill white -colorize 100% \
+    		    -draw "fill black circle ${ri},${ri} ${ri},0" \
+		    -background $color -alpha shape \
+    		    \( +clone -flip \) \( +clone -flop \) \( +clone -flip \) \
+		  \) -flatten +write mpr:masked \
+		\) \
+		\( mpr:masked -crop ${w}x${h}-${x}-${y}\! -background $color -flatten -resize ${wf}x${hf} +write $fname-$tag.jpg \) \
+		\( mpr:masked -crop ${w}x${h}-${x}-${min}\! -background $color -flatten -resize ${wf}x${hf} +write $fname-$tag-chin.jpg \) \
+		null:
+}
+
+if [ "$sqr" -eq 1 ]; then
+	insta 1080 1080 square
+fi
+if [ "$por" -eq 1 ]; then
+	insta 1080 1350 portrait
+fi
+if [ "$lan" -eq 1 ]; then
+	insta 1080 565 landscape
+fi
